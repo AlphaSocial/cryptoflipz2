@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { storage } from '../services/storage';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { smartContract } from '../services/smartContract';
 import { generateId, sleep } from '../utils/helpers';
 import { FLIP_TYPES, GAME_STATUS } from '../utils/constants';
 
@@ -15,7 +15,8 @@ export const useGame = () => {
 };
 
 export const GameProvider = ({ children }) => {
-  const { publicKey } = useWallet();
+  const { publicKey, connected } = useWallet();
+  const { connection } = useConnection();
   
   const [currentGame, setCurrentGame] = useState(null);
   const [gameStatus, setGameStatus] = useState(GAME_STATUS.WAITING);
@@ -25,83 +26,139 @@ export const GameProvider = ({ children }) => {
   const [roundHistory, setRoundHistory] = useState([]);
   const [isFlipping, setIsFlipping] = useState(false);
   const [lastFlipResult, setLastFlipResult] = useState(null);
+  const [flips, setFlips] = useState([]);
 
-  const startGame = useCallback((flip) => {
-    const game = {
-      id: generateId(),
-      flipId: flip.id,
-      player1: flip.creator,
-      player2: publicKey?.toString(),
-      nft: flip.nft,
-      price: flip.price,
-      rounds: flip.rounds,
-      status: GAME_STATUS.ACTIVE,
-      createdAt: Date.now()
-    };
+  // Initialize smart contract when wallet connects
+  useEffect(() => {
+    if (connected && publicKey && connection) {
+      smartContract.initialize({ publicKey }, connection);
+      loadAllFlips();
+    }
+  }, [connected, publicKey, connection]);
 
-    setCurrentGame(game);
-    setGameStatus(GAME_STATUS.ACTIVE);
-    setPlayerScores({ player1: 0, player2: 0 });
-    setCurrentRound(1);
-    setCurrentPlayer(1);
-    setRoundHistory([]);
-    setLastFlipResult(null);
+  const loadAllFlips = useCallback(async () => {
+    try {
+      const allFlips = await smartContract.getAllFlips();
+      const activeFlips = allFlips.filter(flip => 
+        flip.status.active && !flip.challenger
+      );
+      setFlips(activeFlips);
+    } catch (error) {
+      console.error('Error loading flips:', error);
+    }
+  }, []);
+
+  const createFlip = useCallback(async (nftMint, price, rounds) => {
+    try {
+      const result = await smartContract.createFlip(nftMint, price, rounds);
+      await loadAllFlips(); // Refresh flip list
+      return result;
+    } catch (error) {
+      console.error('Error creating flip:', error);
+      throw error;
+    }
+  }, [loadAllFlips]);
+
+  const joinFlip = useCallback(async (flipAddress) => {
+    try {
+      const result = await smartContract.joinFlip(flipAddress);
+      
+      // Set up game state
+      const flipData = await smartContract.getFlip(flipAddress);
+      const game = {
+        flipAddress,
+        player1: flipData.creator.toString(),
+        player2: publicKey.toString(),
+        nft: flipData.nftMint.toString(),
+        price: flipData.price.toNumber(),
+        rounds: flipData.rounds,
+        status: GAME_STATUS.ACTIVE,
+      };
+
+      setCurrentGame(game);
+      setGameStatus(GAME_STATUS.ACTIVE);
+      setPlayerScores({ player1: 0, player2: 0 });
+      setCurrentRound(1);
+      setCurrentPlayer(1);
+      setRoundHistory([]);
+
+      return result;
+    } catch (error) {
+      console.error('Error joining flip:', error);
+      throw error;
+    }
   }, [publicKey]);
 
   const performFlip = useCallback(async (powerLevel) => {
     if (!currentGame || isFlipping) return;
 
-    setIsFlipping(true);
-    setLastFlipResult(null);
+    try {
+      setIsFlipping(true);
+      setLastFlipResult(null);
 
-    // Simulate coin flip with power level affecting duration
-    const flipDuration = powerLevel * 200; // 200ms per power level
-    await sleep(flipDuration);
+      // Submit flip to smart contract
+      const result = await smartContract.performFlip(
+        currentGame.flipAddress, 
+        powerLevel, 
+        currentRound
+      );
 
-    // Calculate result (simplified - 50/50 chance)
-    const result = Math.random() < 0.5 ? 'heads' : 'tails';
-    const winner = result === 'heads' ? 1 : 2;
-    
-    setLastFlipResult(result);
-
-    // Update scores
-    const newScores = { ...playerScores };
-    if (winner === 1) {
-      newScores.player1++;
-    } else {
-      newScores.player2++;
-    }
-    setPlayerScores(newScores);
-
-    // Add to history
-    setRoundHistory(prev => [...prev, { round: currentRound, winner, result, powerLevel }]);
-
-    // Check if game is complete
-    const maxRounds = currentGame.rounds;
-    const halfRounds = Math.ceil(maxRounds / 2);
-    
-    if (newScores.player1 === halfRounds || newScores.player2 === halfRounds) {
-      // Game over
-      setGameStatus(GAME_STATUS.COMPLETED);
-      const gameWinner = newScores.player1 > newScores.player2 ? 1 : 2;
+      // Get updated flip data
+      const flipData = await smartContract.getFlip(currentGame.flipAddress);
       
-      // Update flip status in storage
-      storage.updateFlip(currentGame.flipId, {
-        status: 'completed',
-        winner: gameWinner,
-        finalScores: newScores,
-        completedAt: Date.now()
-      });
-    } else {
-      // Next round
-      if (currentRound < maxRounds) {
+      // Determine result from blockchain
+      const latestResult = flipData.roundResults[currentRound - 1];
+      const flipResult = latestResult.heads ? 'heads' : 'tails';
+      
+      setLastFlipResult(flipResult);
+
+      // Update local state
+      const winner = currentPlayer;
+      const newScores = { ...playerScores };
+      if (winner === 1) {
+        newScores.player1++;
+      } else {
+        newScores.player2++;
+      }
+      setPlayerScores(newScores);
+
+      setRoundHistory(prev => [...prev, { 
+        round: currentRound, 
+        winner, 
+        result: flipResult, 
+        powerLevel 
+      }]);
+
+      // Check if game is complete
+      const maxRounds = currentGame.rounds;
+      const halfRounds = Math.ceil(maxRounds / 2);
+      
+      if (newScores.player1 >= halfRounds || newScores.player2 >= halfRounds) {
+        setGameStatus(GAME_STATUS.COMPLETED);
+      } else {
         setCurrentRound(prev => prev + 1);
         setCurrentPlayer(currentPlayer === 1 ? 2 : 1);
       }
-    }
 
-    setIsFlipping(false);
+    } catch (error) {
+      console.error('Error performing flip:', error);
+      throw error;
+    } finally {
+      setIsFlipping(false);
+    }
   }, [currentGame, currentPlayer, currentRound, playerScores, isFlipping]);
+
+  const claimWinnings = useCallback(async () => {
+    if (!currentGame) return;
+
+    try {
+      const result = await smartContract.claimWinnings(currentGame.flipAddress);
+      return result;
+    } catch (error) {
+      console.error('Error claiming winnings:', error);
+      throw error;
+    }
+  }, [currentGame]);
 
   const endGame = useCallback(() => {
     setCurrentGame(null);
@@ -114,6 +171,7 @@ export const GameProvider = ({ children }) => {
   }, []);
 
   const value = {
+    // Game state
     currentGame,
     gameStatus,
     playerScores,
@@ -122,9 +180,15 @@ export const GameProvider = ({ children }) => {
     roundHistory,
     isFlipping,
     lastFlipResult,
-    startGame,
+    flips,
+    
+    // Actions
+    createFlip,
+    joinFlip,
     performFlip,
-    endGame
+    claimWinnings,
+    endGame,
+    loadAllFlips
   };
 
   return (

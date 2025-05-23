@@ -1,0 +1,282 @@
+{
+  "version": "0.1.0",
+  "name": "crypto_flipz",
+  "instructions": [
+    {
+      "name": "createFlip",
+      "accounts": [
+        {
+          "name": "flip",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "creator",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "nftMint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "creatorNftAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "escrowNftAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "rent",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "rounds",
+          "type": "u8"
+        },
+        {
+          "name": "bump",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "joinFlip",
+      "accounts": [
+        {
+          "name": "flip",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "challenger",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "escrowAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "performFlip",
+      "accounts": [
+        {
+          "name": "flip",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "player",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "powerLevel",
+          "type": "u8"
+        },
+        {
+          "name": "round",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "claimWinnings",
+      "accounts": [
+        {
+          "name": "flip",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "winner",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "escrowAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "escrowNftAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "winnerNftAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "rent",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Flip",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "publicKey"
+          },
+          {
+            "name": "challenger",
+            "type": {
+              "option": "publicKey"
+            }
+          },
+          {
+            "name": "nftMint",
+            "type": "publicKey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "rounds",
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": "FlipStatus"
+            }
+          },
+          {
+            "name": "winner",
+            "type": {
+              "option": "publicKey"
+            }
+          },
+          {
+            "name": "roundResults",
+            "type": {
+              "vec": {
+                "defined": "FlipResult"
+              }
+            }
+          },
+          {
+            "name": "createdAt",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "FlipStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "InGame"
+          },
+          {
+            "name": "Completed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FlipResult",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Heads"
+          },
+          {
+            "name": "Tails"
+          }
+        ]
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "FlipNotActive",
+      "msg": "Flip is not active"
+    },
+    {
+      "code": 6001,
+      "name": "GameNotInProgress",
+      "msg": "Game is not in progress"
+    },
+    {
+      "code": 6002,
+      "name": "NotPlayerTurn",
+      "msg": "Not player's turn"
+    },
+    {
+      "code": 6003,
+      "name": "GameNotComplete",
+      "msg": "Game is not complete"
+    },
+    {
+      "code": 6004,
+      "name": "NotWinner",
+      "msg": "Not the winner"
+    }
+  ]
+} 
